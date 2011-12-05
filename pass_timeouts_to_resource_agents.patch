@@ -1,0 +1,132 @@
+From bb9f20a6bd89d4b018d5f1df8bbbfcd402061738 Mon Sep 17 00:00:00 2001
+From: Lon Hohberger <lhh@redhat.com>
+Date: Mon, 21 Jun 2010 12:21:31 -0400
+Subject: [PATCH] rgmanager: Pass timeouts to resource agents
+
+This increases user control of resource agent
+handling and allows users and developers to control
+resource agent behavior more accurately.
+
+Note that timeouts are not passed to the resource
+agent if __enforce_timeouts is set.
+
+Resolves: bz606480
+
+Signed-off-by: Lon Hohberger <lhh@redhat.com>
+---
+ rgmanager/include/res-ocf.h     |    1 +
+ rgmanager/src/daemons/restree.c |   29 ++++++++++++++++++++++-------
+ 2 files changed, 23 insertions(+), 7 deletions(-)
+
+diff --git a/rgmanager/include/res-ocf.h b/rgmanager/include/res-ocf.h
+index 6e71ac2..557e128 100644
+--- a/rgmanager/include/res-ocf.h
++++ b/rgmanager/include/res-ocf.h
+@@ -14,6 +14,7 @@
+ #define OCF_CHECK_LEVEL_STR "OCF_CHECK_LEVEL"
+ #define OCF_RESOURCE_TYPE_STR "OCF_RESOURCE_TYPE"
+ #define OCF_REFCNT_STR "OCF_RESKEY_RGMANAGER_meta_refcnt"
++#define OCF_TIMEOUT_STR "OCF_RESKEY_RGMANAGER_meta_timeout"
+ 
+ /*
+    LSB return codes 
+diff --git a/rgmanager/src/daemons/restree.c b/rgmanager/src/daemons/restree.c
+index 85f9ec1..1ae9746 100644
+--- a/rgmanager/src/daemons/restree.c
++++ b/rgmanager/src/daemons/restree.c
+@@ -95,7 +95,7 @@ kill_env(char **env)
+    @see			build_env
+  */
+ static void
+-add_ocf_stuff(resource_t *res, char **env, int depth, int refcnt)
++add_ocf_stuff(resource_t *res, char **env, int depth, int refcnt, int timeout)
+ {
+ 	char ver[10];
+ 	char *minor, *val;
+@@ -190,6 +190,17 @@ add_ocf_stuff(resource_t *res, char **env, int depth, int refcnt)
+ 		return;
+ 	snprintf(val, n, "%s=%s", OCF_REFCNT_STR, ver);
+ 	*env = val; env++;
++
++	/*
++	   Store the resource action timeout
++	 */
++	snprintf(ver, sizeof(ver), "%d", timeout);
++	n = strlen(OCF_TIMEOUT_STR) + strlen(ver) + 2;
++	val = malloc(n);
++	if (!val)
++		return;
++	snprintf(val, n, "%s=%s", OCF_TIMEOUT_STR, ver);
++	*env = val; env++;
+ }
+ 
+ 
+@@ -203,7 +214,7 @@ add_ocf_stuff(resource_t *res, char **env, int depth, int refcnt)
+    @see			kill_env res_exec add_ocf_stuff
+  */
+ static char **
+-build_env(resource_node_t *node, int depth, int refcnt)
++build_env(resource_node_t *node, int depth, int refcnt, int timeout)
+ {
+ 	resource_t *res = node->rn_resource;
+ 	char **env;
+@@ -211,7 +222,7 @@ build_env(resource_node_t *node, int depth, int refcnt)
+ 	int x, attrs, n;
+ 
+ 	for (attrs = 0; res->r_attrs && res->r_attrs[attrs].ra_name; attrs++);
+-	attrs += 8; /*
++	attrs += 9; /*
+ 		   Leave space for:
+ 		   OCF_RA_VERSION_MAJOR
+ 		   OCF_RA_VERSION_MINOR
+@@ -220,6 +231,7 @@ build_env(resource_node_t *node, int depth, int refcnt)
+ 		   OCF_RESOURCE_TYPE
+ 		   OCF_CHECK_LEVEL
+ 		   OCF_RESKEY_RGMANAGER_meta_refcnt
++		   OCF_RESKEY_RGMANAGER_meta_timeout
+ 		   (null terminator)
+ 		 */
+ 
+@@ -259,7 +271,7 @@ build_env(resource_node_t *node, int depth, int refcnt)
+ 		++attrs;
+ 	}
+ 
+-	add_ocf_stuff(res, &env[attrs], depth, refcnt);
++	add_ocf_stuff(res, &env[attrs], depth, refcnt, timeout);
+ 
+ 	return env;
+ }
+@@ -318,7 +330,7 @@ res_exec(resource_node_t *node, int op, const char *arg, int depth)
+ 	int childpid, pid;
+ 	int ret = 0;
+ 	int act_index;
+-	time_t sleeptime = 0;
++	time_t sleeptime = 0, timeout = 0;
+ 	char **env = NULL;
+ 	resource_t *res = node->rn_resource;
+ 	const char *op_str = agent_op_str(op);
+@@ -338,8 +350,11 @@ res_exec(resource_node_t *node, int op, const char *arg, int depth)
+ 	if (act_index < 0)
+ 		return 0;
+ 
++	if (!(node->rn_flags & RF_ENFORCE_TIMEOUTS))
++		timeout = node->rn_actions[act_index].ra_timeout;
++
+ #ifdef DEBUG
+-	env = build_env(node, depth, node->rn_resource->r_incarnations);
++	env = build_env(node, depth, node->rn_resource->r_incarnations, (int)timeout);
+ 	if (!env)
+ 		return -errno;
+ #endif
+@@ -365,7 +380,7 @@ res_exec(resource_node_t *node, int op, const char *arg, int depth)
+ #endif
+ 
+ #ifndef DEBUG
+-		env = build_env(node, depth, node->rn_resource->r_incarnations);
++		env = build_env(node, depth, node->rn_resource->r_incarnations, (int)timeout);
+ #endif
+ 
+ 		if (!env)
+-- 
+1.6.2.5
+

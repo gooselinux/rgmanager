@@ -1,0 +1,95 @@
+From 6aed3c2bdb5faa75f4143c376bd33fed8feffaa4 Mon Sep 17 00:00:00 2001
+From: Lon Hohberger <lhh@redhat.com>
+Date: Mon, 12 Jul 2010 13:50:45 -0400
+Subject: [PATCH] rgmanager: Make clulog filter correctly
+
+Resolves: rhbz#609866
+
+Signed-off-by: Lon Hohberger <lhh@redhat.com>
+---
+ rgmanager/src/utils/clulog.c |   41 +++++++++++++++++------------------------
+ 1 files changed, 17 insertions(+), 24 deletions(-)
+
+diff --git a/rgmanager/src/utils/clulog.c b/rgmanager/src/utils/clulog.c
+index 627c5b0..9268657 100644
+--- a/rgmanager/src/utils/clulog.c
++++ b/rgmanager/src/utils/clulog.c
+@@ -19,58 +19,51 @@
+ static void
+ usage(char *progname)
+ {
+-	fprintf(stdout, "%s -s severity \"message text\"\n", progname);
++	fprintf(stdout, "%s [-m logname] -s severity \"message text\"\n", progname);
+ 	exit(0);
+ }
+ 
+ 
+-static char *
+-log_name(void)
+-{
+-	char lnk[PATH_MAX];
+-	static char file[PATH_MAX];
+-
+-	snprintf(lnk, sizeof(lnk), "/proc/%d/exe", getppid());
+-
+-	if (readlink(lnk, file, sizeof(file)) < 0) {
+-		perror("readlink");
+-		return NULL;
+-	}
+-
+-	return basename(file);
+-}
+-
+-
+ int
+ main(int argc, char **argv)
+ {
+ 	int opt, ccsfd;
+ 	int severity = -1;
+ 
+-	char *logmsg = argv[argc-1];
+-	--argc;
++	char *logmsg = NULL;
++	char *myname = NULL;
+ 
+-	while ((opt = getopt(argc, argv, "s:h")) != EOF) {
++	while ((opt = getopt(argc, argv, "m:l:s:h")) != EOF) {
+ 		switch(opt) {
++		case 'l':
+ 		case 's':
+ 			severity = atoi(optarg);
+ 			break;
++		case 'm':
++			myname = optarg;
++			break;
+ 		case 'h':
+ 		default:
+ 			usage(argv[0]);
+-			break;
++			return 0;
+ 		}
+ 	}
+ 
++	logmsg = argv[optind];
++
+ 	if (severity < 0)
+ 		severity = SYSLOGLEVEL;
+ 
+-	init_logging(log_name(), 1, severity);
++	init_logging("rgmanager", 1, severity);
+ 	ccsfd = ccs_connect();
+ 	setup_logging(ccsfd);
+ 	ccs_disconnect(ccsfd);
+ 
+-	logt_print(severity, "%s\n", logmsg);
++	if (myname && strcmp(myname, "rgmanager")) {
++		logt_print(severity, "[%s] %s\n", myname, logmsg);
++	} else {
++		logt_print(severity, "%s\n", logmsg);
++	}
+ 
+ 	close_logging();
+ 	return 0;
+-- 
+1.6.2.5
+
